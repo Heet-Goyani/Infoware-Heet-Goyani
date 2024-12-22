@@ -1,0 +1,128 @@
+import time
+import csv
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import TimeoutException, NoSuchElementException
+from webdriver_manager.chrome import ChromeDriverManager
+
+# Function to log into Amazon
+def perform_login(browser, user_email, user_password):
+    try:
+        browser.get("https://www.amazon.in/ap/signin")
+
+        # Input email and proceed
+        email_input = WebDriverWait(browser, 10).until(
+            EC.presence_of_element_located((By.ID, "ap_email"))
+        )
+        email_input.send_keys(user_email)
+        browser.find_element(By.ID, "continue").click()
+
+        # Input password and log in
+        password_input = WebDriverWait(browser, 10).until(
+            EC.presence_of_element_located((By.ID, "ap_password"))
+        )
+        password_input.send_keys(user_password)
+        browser.find_element(By.ID, "signInSubmit").click()
+    except TimeoutException:
+        print("Error: Timeout during login process")
+        browser.quit()
+
+# Function to extract product data from a category
+def fetch_products(browser, section_url, section_name):
+    browser.get(section_url)
+    
+    product_data = []
+    for page_num in range(1, 4):  # Adjust the range for more pages
+        try:
+            # Wait for product elements to load
+            WebDriverWait(browser, 10).until(
+                EC.presence_of_all_elements_located((By.CSS_SELECTOR, "div.zg-grid-general-faceout"))
+            )
+
+            items = browser.find_elements(By.CSS_SELECTOR, "div.zg-grid-general-faceout")
+
+            for item in items:
+                try:
+                    title = item.find_element(By.CSS_SELECTOR, "div.p13n-sc-truncate").text
+                    cost = item.find_element(By.CSS_SELECTOR, "span.p13n-sc-price").text
+                    deal = "N/A"  # Placeholder if not applicable
+                    stars = item.find_element(By.CSS_SELECTOR, "span.a-icon-alt").text
+                    origin = "N/A"  # Placeholder
+                    seller = "N/A"  # Placeholder
+                    details = "N/A"  # Placeholder
+                    image_links = "N/A"  # Placeholder
+
+                    # Append the collected product information
+                    product_data.append({
+                        "Section": section_name,
+                        "Title": title,
+                        "Price": cost,
+                        "Discount": deal,
+                        "Rating": stars,
+                        "Origin": origin,
+                        "Seller": seller,
+                        "Details": details,
+                        "Images": image_links
+                    })
+                except NoSuchElementException:
+                    continue
+
+            # Navigate to the next page if present
+            next_page = browser.find_element(By.CSS_SELECTOR, "li.a-last a")
+            if next_page:
+                next_page.click()
+                time.sleep(2)
+            else:
+                break
+
+        except TimeoutException:
+            print(f"Error: Timeout while loading page {page_num} for section {section_name}")
+            break
+
+    return product_data
+
+# Main function
+def run_scraper():
+    email = "your-email@example.com"  # Replace with your email
+    password = "your-password"  # Replace with your password
+
+    sections = [
+        {"name": "Kitchen Essentials", "url": "https://www.amazon.in/gp/bestsellers/kitchen/ref=zg_bs_nav_kitchen_0"},
+        {"name": "Footwear", "url": "https://www.amazon.in/gp/bestsellers/shoes/ref=zg_bs_nav_shoes_0"},
+        {"name": "Computing", "url": "https://www.amazon.in/gp/bestsellers/computers/ref=zg_bs_nav_computers_0"},
+        {"name": "Gadgets", "url": "https://www.amazon.in/gp/bestsellers/electronics/ref=zg_bs_nav_electronics_0"}
+        # Add more sections if necessary
+    ]
+
+    # Set up the web driver
+    browser_options = webdriver.ChromeOptions()
+    browser_options.add_argument("--start-maximized")
+    browser = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=browser_options)
+
+    # Perform login
+    perform_login(browser, email, password)
+
+    all_data = []
+    for section in sections:
+        print(f"Scraping section: {section['name']}")
+        section_products = fetch_products(browser, section['url'], section['name'])
+        all_data.extend(section_products)
+
+    # Save the collected data to a CSV file
+    with open("amazon_products.csv", "w", newline="", encoding="utf-8") as output_file:
+        headers = [
+            "Section", "Title", "Price", "Discount", "Rating",
+            "Origin", "Seller", "Details", "Images"
+        ]
+        writer = csv.DictWriter(output_file, fieldnames=headers)
+        writer.writeheader()
+        writer.writerows(all_data)
+
+    print("Data successfully saved to amazon_products.csv")
+    browser.quit()
+
+if __name__ == "__main__":
+    run_scraper()
